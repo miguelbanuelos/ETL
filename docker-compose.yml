@@ -1,13 +1,17 @@
-etl-metrics-ingest:
+services:
+  etl-metrics-ingest:
     build: .
     container_name: etl_metrics_ingest
     restart: unless-stopped
     env_file:
       - .env
     environment:
-      - TIMESCALEDB_HOST=192.168.3.155  # O el nombre del contenedor si comparte red
-      - PROMETHEUS_HOST=192.168.3.155   # O tu contenedor 'prometheus'
+      - TIMESCALEDB_HOST=192.168.3.155
+      - PROMETHEUS_HOST=192.168.3.155
       - PROMETHEUS_PORT=9090
     networks:
-      shared_network:
-        external: true
+      - shared_network
+
+networks:
+  shared_network:
+    external: true
