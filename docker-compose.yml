@@ -1,7 +1,7 @@
 services:
   etl_metrics_ingest:
     build: .
-    container_name: etl-metrics-ingest
+    container_name: etl_metrics_ingest
     restart: unless-stopped
     env_file:
       - .env
