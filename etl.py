@@ -84,7 +84,7 @@ def run_etl_cycle():
     df_final = pd.DataFrame(datos_para_bd)
     df_final.set_index('timestamp', inplace=True)
     
-    print("\nVisualización de los datos a inyectar: :-)))))")
+    print("\nVisualización de los datos a inyectar:")
     print(df_final)
 
     # --- FASE 3: LOAD (TimescaleDB) ---
