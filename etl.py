@@ -95,7 +95,7 @@ def run_incremental_etl():
         chunk_start = start_time
         while chunk_start < now:
             # Descargamos en bloques máximos de 7 días para no saturar
-            chunk_end = min(chunk_start + timedelta(days=7), now)
+            chunk_end = min(chunk_start + timedelta(days=1), now)
             
             # Evitar requests basura si el rango es menor a un bloque de 5 minutos
             if (chunk_end - chunk_start).total_seconds() < 300:
