@@ -152,7 +152,9 @@ def run_incremental_etl(engine):
             
             if (chunk_end - chunk_start).total_seconds() < 300:
                 break
-                
+                     
+            chunk_grid = pd.date_range(start=chunk_start, end=chunk_end, freq='5min', inclusive='left')
+            
             # --- FASE 3: EXTRACCIÓN DINÁMICA ---
             dfs = []
             for metric_alias, query in metrics.items():
@@ -165,18 +167,30 @@ def run_incremental_etl(engine):
                     }, inplace=True)
                     dfs.append(df_temp)
 
-            # --- FASE 4: TRANSFORMACIÓN Y CARGA ---
+            # --- FASE 4: TRANSFORMACIÓN Y CARGA (A PRUEBA DE APAGONES) ---
             if dfs:
                 df_final = pd.concat(dfs, axis=1, join='outer')
-                df_final['ServerName'] = server_name
+            else:
+                # Si el servidor está apagado (0 métricas), iniciamos un DataFrame vacío
+                df_final = pd.DataFrame()
                 
-                # Inyección a TimescaleDB usando la variable global
-                df_final.to_sql(DB_TABLE_NAME, engine, if_exists='append', index=True)
+            # Forzamos al DataFrame a estirarse para cubrir exactamente el esqueleto de 5 minutos.
+            # Los huecos (o el apagón completo de 11 horas) se llenarán con NaN (NULL) automáticamente.
+            df_final = df_final.reindex(chunk_grid)
+            df_final.index.name = 'timestamp'
+            df_final['ServerName'] = server_name
+            
+            # Inyección a TimescaleDB (Los NaN se convierten en celdas vacías limpias en SQL)
+            df_final.to_sql(DB_TABLE_NAME, engine, if_exists='append', index=True)
+            
+            if dfs:
                 print(f"  -> ✅ Lote inyectado: {chunk_start.strftime('%Y-%m-%d %H:%M')} a {chunk_end.strftime('%Y-%m-%d %H:%M')} ({len(df_final)} filas)")
             else:
-                print(f"  -> ⚠️ Sin métricas en Prometheus para: {chunk_start.strftime('%Y-%m-%d')} a {chunk_end.strftime('%Y-%m-%d')}")
+                # Log limpio para saber que el script detectó el apagado y avanzó el reloj correctamente
+                print(f"  -> 💤 Servidor en reposo. Rellenando con NULLs: {chunk_start.strftime('%Y-%m-%d %H:%M')} a {chunk_end.strftime('%Y-%m-%d %H:%M')}")
                 
             chunk_start = chunk_end
+
 
 def wait_until_next_grid_interval(interval_minutes=5):
     now = datetime.now()
