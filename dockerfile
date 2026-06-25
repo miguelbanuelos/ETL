@@ -13,7 +13,7 @@ COPY requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 5. Copiar el script de Python al contenedor
-COPY etl.py /app/
+COPY etl.py .
 
 # 6. Comando de ejecución por defecto
 CMD ["python", "etl.py"]

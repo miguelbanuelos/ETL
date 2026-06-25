@@ -1,5 +1,4 @@
 import os
-import time
 import requests
 import pandas as pd
 from datetime import datetime, timedelta, timezone
@@ -10,7 +9,7 @@ import urllib.parse
 # =========================================================================
 # 1. CREDENCIALES Y CONFIGURACIÓN
 # =========================================================================
-load_dotenv()
+load_dotenv('.env')
 DB_USER = os.getenv("POSTGRES_USER")
 DB_PASSWORD = os.getenv("POSTGRES_PASSWORD")
 DB_DB = os.getenv("POSTGRES_DB")
@@ -22,7 +21,7 @@ PROMETHEUS_PORT = os.getenv("PROMETHEUS_PORT", "9090")
 PROMETHEUS_URL = f"http://{PROMETHEUS_HOST}:{PROMETHEUS_PORT}/api/v1/query_range"
 
 # --- VARIABLE GLOBAL DE LA TABLA ---
-DB_TABLE_NAME = "Servers" # Cámbialo aquí para tus pruebas
+DB_TABLE_NAME = "Servers" 
 
 # =========================================================================
 # 2. MOTOR DE CONSULTAS PROMQL POR ARQUITECTURA
@@ -61,20 +60,15 @@ SERVERS = {
 # 3. FUNCIONES CORE ETL
 # =========================================================================
 def ensure_database_schema(engine):
-    """Genera el DDL dinámicamente basado en las llaves del diccionario SERVERS."""
-    
-    # Extraemos la lista de métricas (ej. ['cpu_percent', 'cpu_cores', ...])
     primer_servidor = list(SERVERS.keys())[0]
     metricas_base = SERVERS[primer_servidor].keys()
     
-    # Construimos las columnas SQL (min, avg, max por cada métrica)
     columnas_sql = []
     for metrica in metricas_base:
         columnas_sql.append(f'"{metrica}_min" FLOAT')
         columnas_sql.append(f'"{metrica}_avg" FLOAT')
         columnas_sql.append(f'"{metrica}_max" FLOAT')
     
-    # Unimos todo en un string formateado
     columnas_formateadas = ",\n        ".join(columnas_sql)
     
     table_sql = f"""
@@ -97,7 +91,6 @@ def ensure_database_schema(engine):
         print(f"[*] Nota DDL: {e}")
 
 def fetch_and_resample(query, start_ts, end_ts):
-    """Extrae datos crudos y delega la compresión temporal a Pandas."""
     try:
         response = requests.get(PROMETHEUS_URL, params={
             'query': query, 'start': start_ts, 'end': end_ts, 'step': '15s'
@@ -131,7 +124,6 @@ def run_incremental_etl(engine):
     for server_name, metrics in SERVERS.items():
         print(f"\nSincronizando {server_name}...")
         
-        # --- FASE 1: CONSULTA DE ESTADO (Catch-up) ---
         try:
             with engine.connect() as conn:
                 query_sql = text(f"SELECT MAX(timestamp) FROM \"{DB_TABLE_NAME}\" WHERE \"ServerName\" = '{server_name}'")
@@ -145,7 +137,6 @@ def run_incremental_etl(engine):
         except Exception:
             start_time = now - timedelta(days=30)
 
-        # --- FASE 2: PAGINACIÓN HISTÓRICA ---
         chunk_start = start_time
         while chunk_start < now:
             chunk_end = min(chunk_start + timedelta(days=1), now)
@@ -155,7 +146,6 @@ def run_incremental_etl(engine):
                      
             chunk_grid = pd.date_range(start=chunk_start, end=chunk_end, freq='5min', inclusive='left')
             
-            # --- FASE 3: EXTRACCIÓN DINÁMICA ---
             dfs = []
             for metric_alias, query in metrics.items():
                 df_temp = fetch_and_resample(query, chunk_start.timestamp(), chunk_end.timestamp())
@@ -167,59 +157,35 @@ def run_incremental_etl(engine):
                     }, inplace=True)
                     dfs.append(df_temp)
 
-            # --- FASE 4: TRANSFORMACIÓN Y CARGA (A PRUEBA DE APAGONES) ---
             if dfs:
                 df_final = pd.concat(dfs, axis=1, join='outer')
             else:
-                # Si el servidor está apagado (0 métricas), iniciamos un DataFrame vacío
                 df_final = pd.DataFrame()
                 
-            # Forzamos al DataFrame a estirarse para cubrir exactamente el esqueleto de 5 minutos.
-            # Los huecos (o el apagón completo de 11 horas) se llenarán con NaN (NULL) automáticamente.
             df_final = df_final.reindex(chunk_grid)
             df_final.index.name = 'timestamp'
             df_final['ServerName'] = server_name
             
-            # Inyección a TimescaleDB (Los NaN se convierten en celdas vacías limpias en SQL)
             df_final.to_sql(DB_TABLE_NAME, engine, if_exists='append', index=True)
             
             if dfs:
                 print(f"  -> ✅ Lote inyectado: {chunk_start.strftime('%Y-%m-%d %H:%M')} a {chunk_end.strftime('%Y-%m-%d %H:%M')} ({len(df_final)} filas)")
             else:
-                # Log limpio para saber que el script detectó el apagado y avanzó el reloj correctamente
                 print(f"  -> 💤 Servidor en reposo. Rellenando con NULLs: {chunk_start.strftime('%Y-%m-%d %H:%M')} a {chunk_end.strftime('%Y-%m-%d %H:%M')}")
                 
             chunk_start = chunk_end
 
-
-def wait_until_next_grid_interval(interval_minutes=5):
-    now = datetime.now()
-    minutes_past_last_interval = now.minute % interval_minutes
-    minutes_to_next_interval = interval_minutes - minutes_past_last_interval
-    
-    next_run = now.replace(second=0, microsecond=0) + timedelta(minutes=minutes_to_next_interval)
-    
-    if next_run <= now:
-        next_run += timedelta(minutes=interval_minutes)
-        
-    sleep_seconds = (next_run - now).total_seconds()
-    print(f"\n⏰ Rejilla activa. Próxima evaluación de estado: {next_run.strftime('%H:%M:%S')}")
-    time.sleep(sleep_seconds)
-
 if __name__ == "__main__":
-    print("Inicializando Motor ETL Multidimensional...")
+    # Eliminamos el While True infinito. 
+    # Airflow orquestará las corridas, esto se ejecuta una vez y se apaga limpiamente.
+    print("Inicializando Motor ETL Multidimensional SARIMAX (Ejecución Airflow)...")
     
     safe_user = urllib.parse.quote_plus(DB_USER)
     safe_password = urllib.parse.quote_plus(DB_PASSWORD)
     db_url = f"postgresql://{safe_user}:{safe_password}@{DB_HOST}:{DB_PORT}/{DB_DB}?sslmode=disable"
     engine = create_engine(db_url)
     
-    # Garantizar arquitectura de tabla dinámicamente
     ensure_database_schema(engine)
-    
-    print("Iniciando Orquestador Incremental... Presiona Ctrl+C para detener.")
     run_incremental_etl(engine)
     
-    while True:
-        wait_until_next_grid_interval(interval_minutes=5)
-        run_incremental_etl(engine)
+    print("Ejecución finalizada con éxito. Airflow cerrará el contenedor.")
