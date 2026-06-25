@@ -19,7 +19,7 @@ git reset --hard origin/main
 # 4. Sincronizar el orquestador (DAG) con Airflow
 # Copiamos el archivo del DAG hacia la carpeta que Airflow está leyendo
 echo "[$(date)] Actualizando DAG en Airflow..."
-cp postgres_dag.py /docker/airflow/dags/
+cp sarimax_dag.py /docker/airflow/dags/
 
 # 5. Construir la imagen del trabajador (Worker)
 # Ya no hacemos 'docker compose up'. Solo preparamos la imagen (la "receta") 

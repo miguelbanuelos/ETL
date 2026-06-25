@@ -5,5 +5,3 @@ node_modules/
 .vs/
 __pycache__/
 *.pyc
-etl1.py
-etl_old.py
