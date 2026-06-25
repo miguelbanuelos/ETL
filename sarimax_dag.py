@@ -33,7 +33,7 @@ with DAG(
         # IMPORTANTE: Asumo que la carpeta de tu nuevo repo se llama "etl_sarimax"
         # Si se llama diferente, ajusta esta ruta
         mounts=[
-            Mount(source="/docker/etl_sarimax/.env", target="/app/.env", type="bind")
+            Mount(source="/docker/etl/.env", target="/app/.env", type="bind")
         ],
         docker_url="unix://var/run/docker.sock"
     )
