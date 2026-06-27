@@ -4,7 +4,9 @@ import pandas as pd
 from datetime import datetime, timedelta, timezone
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
+import sys
 import urllib.parse
+from sqlalchemy.exc import OperationalError
 
 # =========================================================================
 # 1. CREDENCIALES Y CONFIGURACIÓN
@@ -176,16 +178,23 @@ def run_incremental_etl(engine):
             chunk_start = chunk_end
 
 if __name__ == "__main__":
-    # Eliminamos el While True infinito. 
-    # Airflow orquestará las corridas, esto se ejecuta una vez y se apaga limpiamente.
     print("Inicializando Motor ETL Multidimensional SARIMAX (Ejecución Airflow)...")
     
     safe_user = urllib.parse.quote_plus(DB_USER)
     safe_password = urllib.parse.quote_plus(DB_PASSWORD)
     db_url = f"postgresql://{safe_user}:{safe_password}@{DB_HOST}:{DB_PORT}/{DB_DB}?sslmode=disable"
-    engine = create_engine(db_url)
     
-    ensure_database_schema(engine)
-    run_incremental_etl(engine)
-    
-    print("Ejecución finalizada con éxito. Airflow cerrará el contenedor.")
+    try:
+        # Intentamos conectar y ejecutar
+        engine = create_engine(db_url)
+        
+        ensure_database_schema(engine)
+        run_incremental_etl(engine)
+        
+        print("Ejecución finalizada con éxito. Airflow cerrará el contenedor.")
+        
+    except (requests.exceptions.ConnectionError, OperationalError) as e:
+        # Si el servidor está apagado, atrapamos el error aquí
+        print(f"💤 Servidor apagado o base de datos inaccesible. Detalle: {e}")
+        print("✅ Saliendo pacíficamente (Exit 0) para evitar falsas alarmas en Airflow.")
+        sys.exit(0)
